@@ -1,17 +1,32 @@
-import argparse
 
+import logging
+
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+
+fh = logging.FileHandler('otp.log')
+fh.setLevel(logging.DEBUG)
+logger.addHandler(fh)
+
+import argparse
 import urwid
 
 import data_controller
-
+import symbol_values
 
 _BACKGROUND = urwid.SolidFill(u'\N{MEDIUM SHADE}')
+_BASE_CURRENCY = 'CHF'
+
+
+_main_event_loop = urwid.AsyncioEventLoop()
 
 
 _PALETTE = [
   ('bold', 'bold', ''),
   ('err', 'dark red,bold', ''),
   ('reversed', 'standout', ''),
+  ('up', 'dark green', ''),
+  ('down', 'dark red', ''),
 ]
 
 
@@ -49,17 +64,39 @@ def make_button(title, callback_fn):
   return urwid.AttrMap(button, None, focus_map='reversed')
 
 
-class AccountsView(urwid.WidgetWrap):
+
+def on_main(fn):
+  def callback():
+    _main_event_loop.alarm(0, lambda: fn())
+  return callback
+
+
+
+class SummaryView(urwid.WidgetWrap):
   def __init__(self, dc: data_controller.DataController, controller: Controller):
     self.dc = dc
     self.controller = controller
-    super(AccountsView, self).__init__(self._get_menu())
+    self.focus_walker = None
+    self._last_focus = None
+    symbol_values.Ticker.register_callback(
+      'SummaryView',
+      on_main(self.refresh))
+      # lambda: controller.main_loop.event_loop.alarm(0, lambda *_: self.refresh()))
+    with self.dc.connect():
+      super(SummaryView, self).__init__(self._get_menu())
 
   def refresh(self):
-    self._set_w(self._get_menu())
+    logger.info('***\nREFRESH\n***')
+    with self.dc.connect():
+      self._set_w(self._get_menu())
+
+  def __del__(self):
+    symbol_values.Ticker.remove_callback('SummaryView')
 
   def _get_menu(self):
     body = [urwid.Text('ppfin'), urwid.Divider()]
+
+    # Accounts
     accs = self.dc.get_all_accounts()
     if not accs:
       body += [urwid.Text('No Accounts!')]
@@ -68,17 +105,91 @@ class AccountsView(urwid.WidgetWrap):
         body.append(urwid.Columns([
           make_button(acc.name, lambda _:...),
           urwid.Text(acc.get_formatted_balance(), align='right')]))
-      body += [urwid.Divider(),
-               urwid.Text(data_controller.format_balance(
-                 sum(a.get_balance() for a in accs)), align='right')]
+      total = data_controller.format_balance(
+        sum(a.get_balance() for a in accs))
+      body += [urwid.Columns([
+        urwid.Text(('bold', 'Total')),
+        urwid.Text(('bold', total), align='right')])]
     body += [urwid.Divider(),
-             make_button('Update Balances', self._update),
+             make_button('Update Balances', self._update_balances),
              make_button('Add Account', self._add_account),
-             ]
-    focus_walker = urwid.SimpleFocusListWalker(body)
-    return urwid.ListBox(focus_walker)
+             urwid.Divider()]
 
-  def _update(self, _):
+    # Shares
+    symbol_overviews = self.dc.get_all_symbol_overviews()
+    if not symbol_overviews:
+      body += [urwid.Text('No Shares!')]
+    else:
+      for so in symbol_overviews:
+        body.append(urwid.Columns([
+          make_button(so.symbol, self._update_share),
+          urwid.Text(so.get_formatted_quantity_and_value(),
+                     align='right'),
+          urwid.Text(so.get_formatted_current_total_gain(),
+                     align='right')]))
+
+      total_share_value = sum(
+        so.get_current_total_value(currency=_BASE_CURRENCY)
+        for so in symbol_overviews)
+      total_gain = sum(
+        so.get_current_total_gain(currency=_BASE_CURRENCY)
+        for so in symbol_overviews)
+
+      body += [
+        urwid.Columns([
+          urwid.Text(('bold', 'Total')),
+          urwid.Text(
+            ('bold', total_share_value.format(_BASE_CURRENCY + ' {:,.2f}', '...')),
+            align='right'),
+          urwid.Text(
+            ('bold', total_gain.format(_BASE_CURRENCY + ' {:,.2f}', '...')),
+            align='right')
+        ])
+      ]
+    body += [urwid.Divider(),
+             make_button('Update Shares', self._update_shares),
+             make_button('Add Share', self._add_share),
+             urwid.Divider()]
+
+    self.focus_walker = urwid.SimpleFocusListWalker(body)
+    urwid.connect_signal(self.focus_walker, 'modified',
+                         lambda: self._cache_focus_value())
+    if self._last_focus is not None:
+      self.focus_walker.set_focus(self._last_focus)
+    return urwid.ListBox(self.focus_walker)
+
+  def _cache_focus_value(self):
+    self._last_focus = self.focus_walker.focus
+
+  def _update_share(self, k):
+    raise ValueError(k.get_label())
+
+  def _update_shares(self, _):
+    pass
+
+  def _add_share(self, _):
+    def done(_):
+      name = name_edit.get_edit_text()
+      currency = cur_edit.get_edit_text()
+      try:
+        self.dc.add_stock_symbol(name, currency)
+      except data_controller.SymbolExistsException:
+        pass  # TODO: maybe handle
+      self.controller.pop()
+
+    header = urwid.Text('Add Share')
+    name_edit = urwid.Edit("Symbol: ")
+    cur_edit = urwid.Edit("Currency: ")
+    widget = urwid.Pile([
+      header,
+      name_edit,
+      cur_edit,
+      make_button('Done', done),
+      make_button('Cancel', lambda _: self.controller.pop()),
+    ])
+    self.controller.push(urwid.Filler(widget, 'top'))
+
+  def _update_balances(self, _):
     self.controller.push(UpdateView(self.dc, self.controller))
 
   def _add_account(self, _):
@@ -97,6 +208,7 @@ class AccountsView(urwid.WidgetWrap):
       make_button('Cancel', lambda _: self.controller.pop()),
     ])
     self.controller.push(urwid.Filler(widget, 'top'))
+
 
 
 class UpdateView(urwid.WidgetWrap):
@@ -204,13 +316,14 @@ class MainWindow:
   def __init__(self, dc: data_controller.DataController):
     self.dc = dc
     self.controller = Controller()
-    self.controller.push(AccountsView(dc, self.controller))
+    self.controller.push(SummaryView(dc, self.controller))
     self.main_loop = None
 
   def make_main_loop(self):
     self.main_loop = urwid.MainLoop(self.draw(),
                                     palette=_PALETTE,
-                                    unhandled_input=self.controller.unhandled_input)
+                                    unhandled_input=self.controller.unhandled_input,
+                                    event_loop=_main_event_loop)
     return self.main_loop
 
   def draw(self):

@@ -1,5 +1,5 @@
 import pytest
-from data_controller import DataController
+from data_controller import DataController, UnknownSymbolException
 
 
 
@@ -36,3 +36,32 @@ def test_add(data_controller):
       data_controller.add_transaction(account.name, value=v)
     assert data_controller.get_balance(account.name) == sum(values)
 
+
+def test_shares_buy_sell(data_controller):
+  with pytest.raises(UnknownSymbolException):
+    data_controller.add_share_transaction('TEST', quantity=10, proceeds=-100)
+
+  data_controller.add_stock_symbol('TEST', 'USD')
+  assert data_controller.get_currency_of_symbol('TEST') == 'USD'
+  data_controller.add_share_transaction('TEST', quantity=10, proceeds=-100)
+  data_controller.add_share_transaction('TEST', quantity=-10, proceeds=110)
+  overview = data_controller.get_symbol_overview('TEST')
+  assert overview.quantity == 0
+  assert overview.proceeds_so_far == 10
+
+
+def test_shares_two_buys(data_controller):
+  data_controller.add_stock_symbol('TEST', 'USD')
+  data_controller.add_share_transaction('TEST', quantity=10, proceeds=-100)
+  data_controller.add_share_transaction('TEST', quantity=10, proceeds=-110)
+  overview = data_controller.get_symbol_overview('TEST')
+  assert overview.quantity == 20
+  assert overview.proceeds_so_far == -210
+
+
+def test_shares_get_all(data_controller):
+  symbols = ['TST', 'TST2']
+  for symbol in symbols:
+    data_controller.add_stock_symbol(symbol, 'USD')
+  assert [so.symbol
+          for so in data_controller.get_all_symbol_overviews()] == symbols

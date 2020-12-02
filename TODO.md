@@ -10,7 +10,18 @@
 
 ## Alpha 2
 
-- [ ] Stocks?
+- [x] Stocks
+    - need a stocks table
+    - has symbol, shares_change (how many shares bought/sold), price (price of the
+    shares when bought/sold)
+    - we can calc:
+        - total number of shares (sum ofer shares_change), and from this:
+          current value
+        - total money spent on the shares
+        - from the previous together: how much we made?
+    - Show:
+        SYM / NUM_SHARES / VALUE / GAIN
+        
 
 
 ## Future
