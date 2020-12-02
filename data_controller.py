@@ -8,7 +8,7 @@ import sqlite3
 import os
 from datetime import datetime
 
-import helpers
+from helpers import OptionalFloat, OptionalBalance
 import symbol_values
 
 
@@ -57,6 +57,7 @@ class DataController(object):
         CREATE TABLE transactions
         (id INTEGER PRIMARY KEY, 
         accountID INTEGER,
+        date text,
         value real,
         balance_after real)""")
       c.execute("""
@@ -125,13 +126,13 @@ class DataController(object):
       quantity_after, proceeds_after = c.fetchone() or (0, 0.)
       return quantity_after, proceeds_after, symbolID
 
-  def create_account(self, name):
+  def create_account(self, name, currency):
     with self.connect() as c:
       existing = set(c.execute('SELECT * FROM accounts WHERE name=?', (name,)))
       if existing:
         raise ValueError(f'Account with name exists: {name}')
       c.execute('INSERT INTO accounts (name, currency) VALUES (?, ?)',
-                (name, 'USD'))
+                (name, currency))
 
   def get_all_accounts(self):
     with self.connect() as c:
@@ -139,30 +140,39 @@ class DataController(object):
               for name, currency
               in c.execute('SELECT name, currency FROM accounts')]
 
-  def add_transaction(self, account_name: str, value: float):
+  def add_transaction(self, account_name: str, value: float, date: str=None):
+    if not date:
+      date = datetime.now().strftime('%Y-%m-%d, %H:%M:%S')
+      # TODO: Validate!
     with self.connect() as c:
       last_balance, accountID = self._get_last_balance(account_name)
       new_balance = last_balance + value
-      c.execute('INSERT INTO transactions (accountID, value, balance_after) '
-                'VALUES (?, ?, ?)',
-                (accountID, value, new_balance))
+      c.execute('INSERT INTO transactions (accountID, date, value, balance_after) '
+                'VALUES (?, ?, ?, ?)',
+                (accountID, date, value, new_balance))
       return new_balance
 
-  def get_balance(self, account_name: str) -> float:
+  def get_balance(self, account_name: str, index=-1) -> float:
     with self.connect() as c:
-      last_balance, _ = self._get_last_balance(account_name)
+      last_balance, _ = self._get_last_balance(account_name, index)
       return last_balance
 
-  def _get_last_balance(self, account_name):
+  def _get_last_balance(self, account_name, index=-1):
+    if index >= 0:
+      raise NotImplementedError(index)
     with self.connect() as c:
       c.execute('SELECT id FROM accounts WHERE name=?', (account_name,))
       accountID, = c.fetchone()
       c.execute(
         'SELECT balance_after FROM transactions '
         'WHERE accountID=? '
-        'ORDER BY id DESC LIMIT 1 ',
+        f'ORDER BY id DESC LIMIT {abs(index)} ',
         (accountID,))
-      last_balance, = c.fetchone() or (0.,)
+      res = c.fetchall()
+      if not res:
+        last_balance = 0.
+      else:
+        last_balance, = res[-1]
       return last_balance, accountID
 
 
@@ -172,12 +182,18 @@ class Account:
   name: str
   currency: str
   _balance: float = None
+  _last_balance: float = None
 
-  def get_formatted_balance(self):
-    return format_balance(self.get_balance())
+  def get_diff_to_last(self) -> OptionalBalance:
+    return OptionalBalance(
+      self.get_balance() - _lazy(self, '_last_balance',
+                                 lambda: self.dc.get_balance(self.name, -2)),
+      self.currency)
 
-  def get_balance(self):
-    return _lazy(self, '_balance', lambda: self.dc.get_balance(self.name))
+  def get_balance(self) -> OptionalBalance:
+    return OptionalBalance(
+      _lazy(self, '_balance', lambda: self.dc.get_balance(self.name)),
+      self.currency)
 
 
 def _lazy(obj, field_name, fn):
@@ -199,38 +215,22 @@ class SymbolOverview:
            f'proceeds={self.proceeds_so_far:,.2f} / ' \
            f'gain={self.get_current_total_gain():,.2f})'
 
-  def get_current_total_gain(self, currency=None) -> helpers.OptionalFloat:
+  def get_current_total_gain(self, currency=None) -> OptionalBalance:
     return self.get_current_total_value(currency) + self.proceeds_so_far
 
   # TODO: Optionals?
-  def get_current_total_value(self, currency=None) -> helpers.OptionalFloat:
+  def get_current_total_value(self, currency=None) -> OptionalBalance:
     t = symbol_values.Ticker.make(self.symbol)
-    value_in_native_currency = self.quantity * t.get_current_value()
+    current_value = OptionalBalance(t.get_current_value(), self.get_currency())
+    value_in_native_currency = current_value * self.quantity
     if currency:
       return symbol_values.convert_currency(value_in_native_currency,
                                             self.get_currency(), currency)
     return value_in_native_currency
 
-  def get_formatted_quantity_and_value(self) -> str:
-    return f'{self.quantity}, ' \
-           f'{self.get_currency()} ' \
-           f'{self.get_current_total_value().format("{:,.2f}", "Loading...")}'
-
-  def get_formatted_current_total_gain(self) -> str:
-    gain = self.get_current_total_gain()
-    if gain.filled():
-      col = 'up' if gain >= 0 else 'down'
-      return col, f'{self._currency} {gain:,.2f}'
-    logger.info(f'*** {self.symbol} not filled!')
-    return "Loading..."
-
-  def get_currency(self):
+  def get_currency(self) -> str:
     return _lazy(self, '_currency',
                  lambda: self.dc.get_currency_of_symbol(self.symbol))
-
-
-def format_balance(balance: float) -> str:
-  return f'{balance:,.2f}' if balance else '0.00'
 
 
 def create_db_from_files(accounts_json_p, stocks_ibkr_csv_p):
@@ -249,9 +249,12 @@ def _parse_accounts_json_into_db(accounts_json_p, dc: DataController):
   with open(accounts_json_p, 'r') as f:
     accounts = json.load(f)
     with dc.connect():
-      for account_name, balance in accounts.items():
-        dc.create_account(account_name)
+      for account_name, balance in accounts["last"].items():
+        dc.create_account(account_name, 'CHF')  # TODO
         dc.add_transaction(account_name, balance)
+      for account_name, balance in accounts["now"].items():
+        last_balance = dc.get_balance(account_name)
+        dc.add_transaction(account_name, balance - last_balance)
 
 
 _StockTrade = collections.namedtuple(

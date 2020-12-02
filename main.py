@@ -23,10 +23,12 @@ _main_event_loop = urwid.AsyncioEventLoop()
 
 _PALETTE = [
   ('brand', 'bold,underline,dark blue', ''),
+  ('underline', 'underline', ''),
   ('bold', 'bold', ''),
   ('err', 'dark red,bold', ''),
   ('reversed', 'standout', ''),
   ('up', 'dark green', ''),
+  ('neutral', '', ''),
   ('down', 'dark red', ''),
 ]
 
@@ -72,6 +74,21 @@ def on_main(fn):
   return callback
 
 
+class Header(urwid.WidgetWrap):
+  _ALIGNS = {'l': 'left', 'r': 'right'}
+
+  def __init__(self, *titles, aligns=None):
+    titles = [('underline', title) if not isinstance(title, tuple) else title
+              for title in titles]
+    if not aligns:
+      aligns = ''.join('l' for _ in titles)
+    aligns = [Header._ALIGNS[align] for align in aligns]
+    if len(aligns) != len(titles):
+      raise ValueError
+    super().__init__(
+      urwid.Columns([urwid.Text(title, align=align)
+                     for title, align in zip(titles, aligns)]))
+
 
 class SummaryView(urwid.WidgetWrap):
   def __init__(self, dc: data_controller.DataController, controller: Controller):
@@ -102,12 +119,13 @@ class SummaryView(urwid.WidgetWrap):
     if not accs:
       body += [urwid.Text('No Accounts!')]
     else:
+      body += [Header('Account', 'Diff', 'Balance', aligns='lrr')]
       for acc in accs:
         body.append(urwid.Columns([
           make_button(acc.name, lambda _:...),
-          urwid.Text(acc.get_formatted_balance(), align='right')]))
-      total = data_controller.format_balance(
-        sum(a.get_balance() for a in accs))
+          urwid.Text(acc.get_diff_to_last().attr_str(), align='right'),
+          urwid.Text(str(acc.get_balance()), align='right')]))
+      total = str(sum(a.get_balance() for a in accs))
       body += [urwid.Columns([
         urwid.Text(('bold', 'Total')),
         urwid.Text(('bold', total), align='right')])]
@@ -121,30 +139,29 @@ class SummaryView(urwid.WidgetWrap):
     if not symbol_overviews:
       body += [urwid.Text('No Shares!')]
     else:
+      body += [Header('Symbol', 'Shares', 'Gain', 'Possession', aligns='lrrr')]
       for so in symbol_overviews:
         body.append(urwid.Columns([
           make_button(so.symbol, self._update_share),
-          urwid.Text(so.get_formatted_quantity_and_value(),
+          urwid.Text(str(so.quantity), align='right'),
+          urwid.Text(so.get_current_total_gain().attr_str(),
                      align='right'),
-          urwid.Text(so.get_formatted_current_total_gain(),
+          urwid.Text(str(so.get_current_total_value()),
                      align='right')]))
 
-      total_share_value = sum(
-        so.get_current_total_value(currency=_BASE_CURRENCY)
-        for so in symbol_overviews)
       total_gain = sum(
         so.get_current_total_gain(currency=_BASE_CURRENCY)
+        for so in symbol_overviews)
+      total_share_value = sum(
+        so.get_current_total_value(currency=_BASE_CURRENCY)
         for so in symbol_overviews)
 
       body += [
         urwid.Columns([
           urwid.Text(('bold', 'Total')),
-          urwid.Text(
-            ('bold', total_share_value.format(_BASE_CURRENCY + ' {:,.2f}', '...')),
-            align='right'),
-          urwid.Text(
-            ('bold', total_gain.format(_BASE_CURRENCY + ' {:,.2f}', '...')),
-            align='right')
+          urwid.Text(''),
+          urwid.Text(('bold', str(total_gain)), align='right'),
+          urwid.Text(('bold', str(total_share_value)), align='right'),
         ])
       ]
     body += [urwid.Divider(),
@@ -197,7 +214,7 @@ class SummaryView(urwid.WidgetWrap):
     def done(_):
       name, _ = name_edit.get_text()
       name = name.replace('Name: ', '')
-      self.dc.create_account(name)
+      self.dc.create_account(name, _BASE_CURRENCY)  # TODO
       self.controller.pop()
 
     name_edit = urwid.Edit("Name: ")

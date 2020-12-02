@@ -24,7 +24,12 @@
         
 ## Alpha 3
 
+- [x] Unify GUI: show amounts in the right most column
+- [x] Add date to transactions
+    - [x] Show diff to prev entry in GUI
+- [x] Unified formatting including currency handling
 - [ ] Divide into liquid and non-liquid
+    - [ ] Add a separate view for hold backs and non-liquids
 - [ ] Document IBKR interaction, 
     - [ ] maybe automize
     

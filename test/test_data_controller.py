@@ -18,14 +18,14 @@ def data_controller(tmp_database_path):
                    _TEST_ACCOUNT_NAME + '_2',
                    _TEST_ACCOUNT_NAME + '_3']
   for test_account in test_accounts:
-    dc.create_account(test_account)
+    dc.create_account(test_account, 'USD')
   assert [account.name for account in dc.get_all_accounts()] == test_accounts
   return dc
 
 
 def test_create(data_controller):
   with pytest.raises(ValueError):
-    data_controller.create_account(_TEST_ACCOUNT_NAME)
+    data_controller.create_account(_TEST_ACCOUNT_NAME, 'USD')
 
 
 def test_add(data_controller):
@@ -35,6 +35,18 @@ def test_add(data_controller):
     for v in values:
       data_controller.add_transaction(account.name, value=v)
     assert data_controller.get_balance(account.name) == sum(values)
+
+
+def test_second_last(data_controller):
+  for account in data_controller.get_all_accounts():
+    values = [12.0, -5, 27]
+    balances = [0.]
+    for v in values:
+      data_controller.add_transaction(account.name, value=v)
+      balances.append(v + balances[-1])
+    for index in [-1, -2, -3]:
+      assert data_controller.get_balance(account.name, index=index) == \
+             balances[index], (balances, index)
 
 
 def test_shares_buy_sell(data_controller):

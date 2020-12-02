@@ -102,12 +102,12 @@ def main():
     time.sleep(1)
 
 
-def convert_currency(amount, from_cur, to_cur) -> helpers.OptionalFloat:
+def convert_currency(amount, from_cur, to_cur) -> helpers.OptionalBalance:
   if from_cur == to_cur:
     return amount
   base_amount = Ticker.make(f'{from_cur}{to_cur}=X').get_current_value()
   logger.info(f'CONVERTING {amount} {from_cur} -> {to_cur} -> {base_amount}')
-  return base_amount * amount
+  return helpers.OptionalBalance(base_amount * amount, to_cur)
 
 
 def check_symbols(symbols):
