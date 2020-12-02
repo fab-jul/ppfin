@@ -22,6 +22,16 @@
     - Show:
         SYM / NUM_SHARES / VALUE / GAIN
         
+## Alpha 3
+
+- [ ] Divide into liquid and non-liquid
+- [ ] Document IBKR interaction, 
+    - [ ] maybe automize
+    
+    
+## Alpha 4
+
+- [ ] Graphs?
 
 
 ## Future

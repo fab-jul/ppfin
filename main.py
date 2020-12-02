@@ -1,4 +1,3 @@
-
 import logging
 
 logger = logging.getLogger()
@@ -14,6 +13,7 @@ import urwid
 import data_controller
 import symbol_values
 
+
 _BACKGROUND = urwid.SolidFill(u'\N{MEDIUM SHADE}')
 _BASE_CURRENCY = 'CHF'
 
@@ -22,6 +22,7 @@ _main_event_loop = urwid.AsyncioEventLoop()
 
 
 _PALETTE = [
+  ('brand', 'bold,underline,dark blue', ''),
   ('bold', 'bold', ''),
   ('err', 'dark red,bold', ''),
   ('reversed', 'standout', ''),
@@ -94,7 +95,7 @@ class SummaryView(urwid.WidgetWrap):
     symbol_values.Ticker.remove_callback('SummaryView')
 
   def _get_menu(self):
-    body = [urwid.Text('ppfin'), urwid.Divider()]
+    body = [urwid.Text(('brand', 'ppfin')), urwid.Divider()]
 
     # Accounts
     accs = self.dc.get_all_accounts()
