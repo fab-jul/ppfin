@@ -273,7 +273,6 @@ def create_db_from_files(accounts_json_p, stocks_ibkr_csv_p):
   _parse_stocks_ibkr_csv(stocks_ibkr_csv_p, dc)
 
 
-
 def _parse_accounts_json_into_db(accounts_json_p, dc: DataController):
   with open(accounts_json_p, 'r') as f:
     accounts = json.load(f)
@@ -293,7 +292,6 @@ def _parse_accounts_json_into_db(accounts_json_p, dc: DataController):
         dc.create_account(cat1_acc, currency, category=1)
         for info, date, value in transactions:
           dc.add_transaction('Non-Liquids', value, date=date, info=info)
-
 
 
 _StockTrade = collections.namedtuple(
@@ -350,6 +348,7 @@ def _get_stock_yfinance_names(stocks_ibkr_csv_p):
       elif exch in _AMERICAN_EXCH:
         symbol_yf = symbol
       else:
+        # TODO: Extend somehow.
         raise ValueError(f'Unknown: {symbol} / {exch}')
       print(f'{symbol} -> {symbol_yf}')
       symbols_yf[symbol] = symbol_yf
@@ -359,8 +358,16 @@ def _get_stock_yfinance_names(stocks_ibkr_csv_p):
   return symbols_yf
 
 
-
 def _parse_stocks_ibkr_csv(stocks_ibkr_csv_p, dc: DataController):
+  """Parse CSV from IBKR.
+
+  Notes:
+      - Just looks at orders
+      - Does not handle stock splits! These have to be edited by you
+        in the CSV. (TODO: at least detect them they are also in the CSV)
+      - Gets the "real" symbol that Yahoo understands by looking up the
+        exchange.
+  """
   # First get the stocks and exchanges.
   symbols_yf = _get_stock_yfinance_names(stocks_ibkr_csv_p)
   # Now parse our trades.

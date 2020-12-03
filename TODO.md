@@ -30,15 +30,10 @@
 - [x] Unified formatting including currency handling
 - [x] Divide into liquid and non-liquid
     - [x] Add a separate view for hold backs and non-liquids
-- [ ] Document IBKR interaction, 
-    - [ ] maybe automize
     
     
-## Alpha 4
-
-- [ ] Graphs?
-
-
 ## Future
 
+- [ ] Graphs?
+- [ ] maybe automize IBKR
 - [ ] Vim bindings
