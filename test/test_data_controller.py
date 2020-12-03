@@ -28,6 +28,17 @@ def test_create(data_controller):
     data_controller.create_account(_TEST_ACCOUNT_NAME, 'USD')
 
 
+def test_account_categories(tmp_database_path):
+  dc = DataController(tmp_database_path)
+  accounts = list((i, _TEST_ACCOUNT_NAME + '_' + str(i))
+                  for i in range(4))
+  for i, account_name in accounts:
+    dc.create_account(account_name, currency='USD', category=i)
+  for i, account_name in accounts:
+    accs = dc.get_all_accounts(category=i)
+    assert [acc.name for acc in accs] == [account_name]
+
+
 def test_add(data_controller):
   for account in data_controller.get_all_accounts():
     values = [12.0, -5, 27]
