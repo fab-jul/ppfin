@@ -28,8 +28,8 @@
 - [x] Add date to transactions
     - [x] Show diff to prev entry in GUI
 - [x] Unified formatting including currency handling
-- [ ] Divide into liquid and non-liquid
-    - [ ] Add a separate view for hold backs and non-liquids
+- [x] Divide into liquid and non-liquid
+    - [x] Add a separate view for hold backs and non-liquids
 - [ ] Document IBKR interaction, 
     - [ ] maybe automize
     

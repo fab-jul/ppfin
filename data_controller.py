@@ -52,12 +52,16 @@ class DataController(object):
     with self.connect() as c:
       c.execute("""
         CREATE TABLE accounts
-        (id INTEGER PRIMARY KEY, name text, currency text)""")
+        (id INTEGER PRIMARY KEY, 
+         category INTEGER,
+         name text,
+         currency text)""")
       c.execute("""
         CREATE TABLE transactions
         (id INTEGER PRIMARY KEY, 
         accountID INTEGER,
         date text,
+        info text,
         value real,
         balance_after real)""")
       c.execute("""
@@ -126,30 +130,48 @@ class DataController(object):
       quantity_after, proceeds_after = c.fetchone() or (0, 0.)
       return quantity_after, proceeds_after, symbolID
 
-  def create_account(self, name, currency):
+  def create_account(self, name, currency, category=0):
     with self.connect() as c:
       existing = set(c.execute('SELECT * FROM accounts WHERE name=?', (name,)))
       if existing:
         raise ValueError(f'Account with name exists: {name}')
-      c.execute('INSERT INTO accounts (name, currency) VALUES (?, ?)',
-                (name, currency))
+      c.execute('INSERT INTO accounts (name, currency, category) VALUES (?, ?, ?)',
+                (name, currency, category))
 
-  def get_all_accounts(self):
+  def get_all_accounts(self, category=None):
     with self.connect() as c:
-      return [Account(self, name, currency)
-              for name, currency
-              in c.execute('SELECT name, currency FROM accounts')]
+      if category is None:
+        results = c.execute('SELECT name, currency FROM accounts')
+      else:
+        results = c.execute('SELECT name, currency FROM accounts '
+                            'WHERE category=?', (category,))
+      return [Account(self, name, currency) for name, currency in results]
 
-  def add_transaction(self, account_name: str, value: float, date: str=None):
+  def get_account_transactions(self, account_name):
+    with self.connect() as c:
+      c.execute('SELECT id, currency FROM accounts WHERE name=?', (account_name,))
+      accountID, currency = c.fetchone()
+      return [AccountTransaction(date, info, OptionalBalance(value, currency))
+              for date, info, value
+              in c.execute('SELECT date, info, value FROM transactions '
+                           'WHERE accountID=?', (accountID,))]
+
+  def add_transaction(self,
+                      account_name: str,
+                      value: float,
+                      date: str = None,
+                      info: str = ''):
     if not date:
-      date = datetime.now().strftime('%Y-%m-%d, %H:%M:%S')
       # TODO: Validate!
+      date = datetime.now().strftime('%Y-%m-%d, %H:%M:%S')
     with self.connect() as c:
       last_balance, accountID = self._get_last_balance(account_name)
       new_balance = last_balance + value
-      c.execute('INSERT INTO transactions (accountID, date, value, balance_after) '
-                'VALUES (?, ?, ?, ?)',
-                (accountID, date, value, new_balance))
+      c.execute('INSERT INTO transactions '
+                '(accountID, date, info, value, balance_after) '
+                'VALUES '
+                '(?, ?, ?, ?, ?)',
+                (accountID, date, info, value, new_balance))
       return new_balance
 
   def get_balance(self, account_name: str, index=-1) -> float:
@@ -194,6 +216,13 @@ class Account:
     return OptionalBalance(
       _lazy(self, '_balance', lambda: self.dc.get_balance(self.name)),
       self.currency)
+
+
+@dataclasses.dataclass
+class AccountTransaction:
+  date: str
+  info: str
+  value: OptionalBalance
 
 
 def _lazy(obj, field_name, fn):
@@ -248,13 +277,23 @@ def create_db_from_files(accounts_json_p, stocks_ibkr_csv_p):
 def _parse_accounts_json_into_db(accounts_json_p, dc: DataController):
   with open(accounts_json_p, 'r') as f:
     accounts = json.load(f)
+    # TODO: Should be more granular.
+    currency = accounts["currency"]
     with dc.connect():
       for account_name, balance in accounts["last"].items():
-        dc.create_account(account_name, 'CHF')  # TODO
-        dc.add_transaction(account_name, balance)
+        dc.create_account(account_name, currency)
+        dc.add_transaction(account_name, balance,
+                           info='Initial')
       for account_name, balance in accounts["now"].items():
         last_balance = dc.get_balance(account_name)
-        dc.add_transaction(account_name, balance - last_balance)
+        dc.add_transaction(account_name, balance - last_balance,
+                           info='Last Update')
+      # Non liquits
+      for cat1_acc, transactions in accounts["cat1"].items():
+        dc.create_account(cat1_acc, currency, category=1)
+        for info, date, value in transactions:
+          dc.add_transaction('Non-Liquids', value, date=date, info=info)
+
 
 
 _StockTrade = collections.namedtuple(

@@ -129,23 +129,33 @@ class SummaryView(urwid.WidgetWrap):
   def _get_menu(self):
     body = [urwid.Text(('brand', 'ppfin')), urwid.Divider()]
 
-    # Accounts
-    accs = self.dc.get_all_accounts()
-    if not accs:
-      body += [urwid.Text('No Accounts!')]
-    else:
-      body += [Header('Account', 'Diff', 'Balance', aligns='lrr')]
+    # Normal (category-0) Accounts
+    accs = self.dc.get_all_accounts(category=0)
+    body += [Header('Account', 'Diff', 'Balance', aligns='lrr')]
+    for acc in accs:
+      body.append(urwid.Columns([
+        make_button(acc.name, lambda btn: self._show_account(btn.get_label())),
+        urwid.Text(acc.get_diff_to_last().attr_str(), align='right'),
+        urwid.Text(str(acc.get_balance()), align='right')]))
+
+    total_diff = sum(acc.get_diff_to_last() for acc in accs).attr_str()
+    total = sum(acc.get_balance() for acc in accs)
+
+    # Special (category-1) Accounts
+    accs = self.dc.get_all_accounts(category=1)
+    if accs:
       for acc in accs:
         body.append(urwid.Columns([
-          make_button(acc.name, lambda _:...),
-          urwid.Text(acc.get_diff_to_last().attr_str(), align='right'),
+          make_button(acc.name, lambda btn: self._show_account(btn.get_label())),
+          urwid.Text(''),
           urwid.Text(str(acc.get_balance()), align='right')]))
-      total_diff = sum(acc.get_diff_to_last() for acc in accs).attr_str()
-      total = str(sum(acc.get_balance() for acc in accs))
-      body += [urwid.Columns([
-        urwid.Text(('bold', 'Total')),
-        boldify(urwid.Text(total_diff, align='right')),
-        urwid.Text(('bold', total), align='right')])]
+        total += acc.get_balance()
+
+    body += [urwid.Columns([
+      urwid.Text(('bold', 'Total')),
+      boldify(urwid.Text(total_diff, align='right')),
+      urwid.Text(('bold', str(total)), align='right')])]
+
     body += [urwid.Divider(),
              make_button('Update Balances', self._update_balances),
              make_button('Add Account', self._add_account),
@@ -192,6 +202,10 @@ class SummaryView(urwid.WidgetWrap):
     if self._last_focus is not None:
       self.focus_walker.set_focus(self._last_focus)
     return urwid.ListBox(self.focus_walker)
+
+  def _show_account(self, account_name):
+    self.controller.push(AccountDetailView(
+      self.dc, self.controller, account_name))
 
   def _cache_focus_value(self):
     self._last_focus = self.focus_walker.focus
@@ -245,8 +259,36 @@ class SummaryView(urwid.WidgetWrap):
     self.controller.push(urwid.Filler(widget, 'top'))
 
 
+class AccountDetailView(urwid.WidgetWrap):
+  def __init__(self,
+               dc: data_controller.DataController,
+               controller: Controller,
+               account_name: str):
+    self.dc = dc
+    self.controller = controller
+    self.account_name = account_name
+    super().__init__(self._get())
+
+  def _get(self):
+    transactions = self.dc.get_account_transactions(self.account_name)
+
+    body = [Header('Date', 'Info', 'Amount', aligns='llr')]
+    for t in transactions:
+      body.append(urwid.Columns([
+        urwid.Text(t.date),
+        urwid.Text(t.info),
+        urwid.Text(t.value.attr_str(), align='right'),
+      ]))
+    body += [
+      urwid.Divider(),
+      make_button('Done', lambda _: self.controller.pop())]
+
+    return urwid.ListBox(urwid.SimpleFocusListWalker(body))
+
+
 class UpdateView(urwid.WidgetWrap):
-  def __init__(self, dc: data_controller.DataController,
+  def __init__(self,
+               dc: data_controller.DataController,
                controller: Controller):
     self.dc = dc
     self.controller = controller
@@ -272,7 +314,7 @@ class UpdateView(urwid.WidgetWrap):
 
   def _get_menu(self):
     body = [urwid.Text('Update'), urwid.Divider()]
-    self.accs = self.dc.get_all_accounts()
+    self.accs = self.dc.get_all_accounts(category=0)
     if not self.accs:
       raise NotImplemented
     indent = max(len(acc.name) for acc in self.accs) + 5
