@@ -28,9 +28,17 @@ _PALETTE = [
   ('err', 'dark red,bold', ''),
   ('reversed', 'standout', ''),
   ('up', 'dark green', ''),
+  ('upbold', 'dark green,bold', ''),
   ('neutral', '', ''),
+  ('neutralbold', 'bold', ''),
   ('down', 'dark red', ''),
+  ('downbold', 'dark red,bold', ''),
 ]
+
+_STYLES = {palette_entry[0] for palette_entry in _PALETTE}
+
+_BOLD_MAP = {key: key + 'bold'
+             for key in _STYLES if key in _STYLES and key + 'bold' in _STYLES}
 
 
 class Controller:
@@ -66,6 +74,9 @@ def make_button(title, callback_fn):
   urwid.connect_signal(button, 'click', callback_fn)
   return urwid.AttrMap(button, None, focus_map='reversed')
 
+
+def boldify(w):
+  return urwid.AttrMap(w, attr_map=_BOLD_MAP)
 
 
 def on_main(fn):
@@ -103,6 +114,10 @@ class SummaryView(urwid.WidgetWrap):
     with self.dc.connect():
       super(SummaryView, self).__init__(self._get_menu())
 
+  def unhandled_input(self, key):
+    if key == 'r':
+      self.refresh()
+
   def refresh(self):
     logger.info('***\nREFRESH\n***')
     with self.dc.connect():
@@ -125,9 +140,11 @@ class SummaryView(urwid.WidgetWrap):
           make_button(acc.name, lambda _:...),
           urwid.Text(acc.get_diff_to_last().attr_str(), align='right'),
           urwid.Text(str(acc.get_balance()), align='right')]))
-      total = str(sum(a.get_balance() for a in accs))
+      total_diff = sum(acc.get_diff_to_last() for acc in accs).attr_str()
+      total = str(sum(acc.get_balance() for acc in accs))
       body += [urwid.Columns([
         urwid.Text(('bold', 'Total')),
+        boldify(urwid.Text(total_diff, align='right')),
         urwid.Text(('bold', total), align='right')])]
     body += [urwid.Divider(),
              make_button('Update Balances', self._update_balances),
@@ -226,7 +243,6 @@ class SummaryView(urwid.WidgetWrap):
       make_button('Cancel', lambda _: self.controller.pop()),
     ])
     self.controller.push(urwid.Filler(widget, 'top'))
-
 
 
 class UpdateView(urwid.WidgetWrap):
